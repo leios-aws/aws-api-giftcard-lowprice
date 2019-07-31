@@ -28,9 +28,18 @@ var getProductId = function (item) {
 };
 
 exports.handler = function (event, context, callback) {
+    var searchKeyword = null;
     now = Math.floor(Date.now() / 1000);
 
-    async.mapSeries(traceProducts, function(product, callback) {
+    if (event && event.queryStringParameters && event.queryStringParameters.search) {
+        searchKeyword = event.queryStringParameters.search;
+    }
+
+    async.mapSeries(traceProducts, function (product, callback) {
+        if (searchKeyword && product.indexOf(searchKeyword) < 0) {
+            callback(null);
+            return;
+        }
         var queryParams = {
             TableName: 'webdata',
             KeyConditionExpression: "#site = :site and #ts = :ts",
@@ -45,24 +54,27 @@ exports.handler = function (event, context, callback) {
         };
 
         docClient.query(queryParams, (err, res) => {
-            var response = {product: product};
+            var response = { product: product };
             if (err) {
                 console.log(err);
             }
 
             if (res && res.Items && res.Items.length > 0 && res.Items[0].data) {
-                response.data = res.Items[0].data;
+                response.data = res.Items[0].data.map(function (d) {
+                    return { t: d.ts * 1000, y: d.price };
+                });
             }
 
             callback(err, response);
         });
-    }, function(err, results) {
+    }, function (err, results) {
+
         callback(err, {
             "statusCode": 200,
             "headers": {
                 'Access-Control-Allow-Origin': '*'
             },
-            "body": JSON.stringify(results),
+            "body": JSON.stringify(results.filter(function (r) { return r; })),
             "isBase64Encoded": false
         });
     });
